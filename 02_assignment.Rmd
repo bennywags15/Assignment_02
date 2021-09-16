@@ -162,15 +162,10 @@ hotels_lasso_wf
 A LASSO model is also known as a shrinkage model because it reduces the coefficients in the regression. This also then reduces variance in the model, so if we changed the input variables for the model, the model's predictions would not change as drastically compared to using a logistic regression.
 
 6. In this step, we'll tune the model and fit the model using the best tuning parameter to the entire training dataset.
-
-* Create a 5-fold cross-validation sample. We'll use this later. I have set the seed for you.  
-
+* Create a 5-fold cross-validation sample. We'll use this later. I have set the seed for you. 
 * Use the `grid_regular()` function to create a grid of 10 potential penalty parameters (we're keeping this sort of small because the dataset is pretty large). Use that with the 5-fold cv data to tune the model.
-
 * Use the `tune_grid()` function to fit the models with different tuning parameters to the different cross-validation sets. 
-
 * Use the `collect_metrics()` function to collect all the metrics from the previous step and create a plot with the accuracy on the y-axis and the penalty term on the x-axis. Put the x-axis on the log scale.
-
 * Use the `select_best()` function to find the best tuning parameter, fit the model using that tuning parameter to the entire training set (HINT: `finalize_workflow()` and `fit()`), and display the model results using `pull_workflow_fit()` and `tidy()`. Are there some variables with coefficients of 0?
 
 ```{r cv}
@@ -199,7 +194,7 @@ hotels_lasso_tune
 ```{r tune_results}
 hotels_lasso_tune %>% 
   collect_metrics() %>% 
-  filter(.metric == "rmse") 
+  filter(.metric == "accuracy") 
 ```
 
 
@@ -207,47 +202,62 @@ hotels_lasso_tune %>%
 # Visualize rmse vs. penalty
 hotels_lasso_tune %>% 
   collect_metrics() %>% 
-  filter(.metric == "rmse") %>% 
+  filter(.metric == "accuracy") %>% 
   ggplot(aes(x = penalty, y = mean)) +
   geom_point() +
   geom_line() +
   scale_x_log10(
    breaks = scales::trans_breaks("log10", function(x) 10^x),
    labels = scales::trans_format("log10",scales::math_format(10^.x))) +
-  labs(x = "penalty", y = "rmse")
+  labs(x = "penalty", y = "accuracy")
 ```
 
 ```{r best-tune}
 # Best tuning parameter by smallest rmse
 best_param <- hotels_lasso_tune %>% 
-  select_best(metric = "rmse")
+  select_best(metric = "accuracy")
 best_param
 ```
 
 ```{r tune_wf}
-house_lasso_final_wf <- house_lasso_wf %>% 
+hotels_lasso_final_wf <- hotels_lasso_wf %>% 
   finalize_workflow(best_param)
-house_lasso_final_wf
+hotels_lasso_final_wf
 ```
 
 ```{r lasso_train}
-house_lasso_final_mod <- house_lasso_final_wf %>% 
-  fit(data = house_training)
+hotels_lasso_final_mod <- hotels_lasso_final_wf %>% 
+  fit(data = hotels_training)
 
-house_lasso_final_mod %>% 
+hotels_lasso_final_mod %>% 
   pull_workflow_fit() %>% 
   tidy() 
 ```
+There are variables with 0 as the coefficient (arrival_date_month_September, distribution_channel_Undefined)
 
 7. Now that we have a model, let's evaluate it a bit more. All we have looked at so far is the cross-validated accuracy from the previous step. 
 
 * Create a variable importance graph. Which variables show up as the most important? Are you surprised?  
 * Use the `last_fit()` function to fit the final model and then apply it to the testing data. Report the metrics from the testing data using the `collet_metrics()` function. How do they compare to the cross-validated metrics?
+
+The new accuracy estimate using the testing data is almost exactly the same as the cross-validated metrics. It is less accurate by about .003 (0.8161259	vs. 0.813814) 
+
 * Use the `collect_predictions()` function to find the predicted probabilities and classes for the test data. Save this to a new dataset called `preds`. Then, use the `conf_mat()` function from `dials` (part of `tidymodels`) to create a confusion matrix showing the predicted classes vs. the true classes. Compute the true positive rate (sensitivity), true negative rate (specificity), and accuracy. See this [Wikipedia](https://en.wikipedia.org/wiki/Confusion_matrix) reference if you (like me) tend to forget these definitions. Also keep in mind that a "positive" in this case is a cancellation (those are the 1's).    
 * Use the `preds` dataset you just created to create a density plot of the predicted probabilities of canceling (the variable is called `.pred_1`), filling by `is_canceled`. Use an `alpha = .5` and `color = NA` in the `geom_density()`. Answer these questions: 
 a. What would this graph look like for a model with an accuracy that was close to 1?  
 b. Our predictions are classified as canceled if their predicted probability of canceling is greater than .5. If we wanted to have a high true positive rate, should we make the cutoff for predicted as canceled higher or lower than .5?  
 c. What happens to the true negative rate if we try to get a higher true positive rate? 
+
+```{r lasso_test}
+# Fit model with best tuning parameter(s) to training data and apply to test data
+hotels_lasso_test <- hotels_lasso_final_wf %>% 
+  last_fit(hotels_split)
+
+# Metrics for model applied to test data
+hotels_lasso_test %>% 
+  collect_metrics()
+```
+
 
 8. Let's say that this model is going to be applied to bookings 14 days in advance of their arrival at each hotel, and someone who works for the hotel will make a phone call to the person who made the booking. During this phone call, they will try to assure that the person will be keeping their reservation or that they will be canceling in which case they can do that now and still have time to fill the room. How should the hotel go about deciding who to call? How could they measure whether it was worth the effort to do the calling? Can you think of another way they might use the model? 
 
@@ -263,4 +273,4 @@ Read [Chapter 1: The Power Chapter](https://data-feminism.mitpress.mit.edu/pub/v
 * Can you think of any examples of missing datasets, like those described in the "Data Science for Whom?" section? Or was there an example there that surprised you?  
 * How did the examples in the "Data Science with Whose Interests and Goals?" section make you feel? What responsibility do companies have to prevent these things from occurring? Who is to blame?
 
-
+Taking into account the questions asked by the article, I think the field of Data Science can be compared to many other STEM related fields. Women and minority genders are underrepresented in the job market, but also in the actually topics studied in the field as well. For example, the AI facial recognition model was created with bias because the data collected/used to train the model underrepresented minority groups. Another example from the article deals with Amazon's resume screening model that completely disregards the difference in male and female resume's due to the dataset used to train the model. It seems like there is a pattern with these projects and how they disregard certain groups. One section of the article that surprised me was the Data Science with Whose Interests and Goals. It felt as if there is no way around this problem if you were so set on collecting data for this problem unless this data was voluntarily given. Which due to the topic of the study, parents would be reluctant to give that information. I think we can blame the person responsible for collecting the data, because they need to think about the chance that certain groups would be misrepresented just as if the roles were reversed between the poor and rich families. 
