@@ -33,6 +33,7 @@ From now on, GitHub should be part of your routine when doing assignments. I rec
 
 **Task**: When you are finished with the assignment, post a link below to the GitHub repo for the assignment. 
 
+https://github.com/bennywags15/Assignment_02
 
 ## Machine Learning review and intro to `tidymodels`
 
@@ -42,18 +43,39 @@ Read through and follow along with the [Machine Learning review with an intro to
 
 1. Read about the hotel booking data, `hotels`, on the [Tidy Tuesday page](https://github.com/rfordatascience/tidytuesday/blob/master/data/2020/2020-02-11/readme.md) it came from. There is also a link to an article from the original authors. The outcome we will be predicting is called `is_canceled`. 
   - Without doing any analysis, what are some variables you think might be predictive and why?  
+  
+The first two variables that stand out are the babies and children variables. Having kids can be a big task that gets in the way of traveling, thus they might play a role in whether the booking is canceled. Also, previous_cancellations will play a role. Someone who canceled in the past may be more prone to canceling again maybe because of their schedule.
+
   _ What are some problems that might exist with the data? You might think about how it was collected and who did the collecting.  
+
+The data was collected by people in the hotel industry, with the intent to maximize their hotel's profits. Thus, they have a bias as to what variables to collect and what information to extract from the data.
+
   - If we construct a model, what type of conclusions will be able to draw from it?  
+  
+  We will be able to see which variables have an affect on whether a booking was canceled. We can then use that information to predict future cancellations. 
   
 2. Create some exploratory plots or table summaries of the variables in the dataset. Be sure to also examine missing values or other interesting values. You may want to adjust the `fig.width` and `fig.height` in the code chunk options.  
 
+```{r, fig.width=15, fig.height=4}
+hotels %>%
+  select(where(is.numeric)) %>% 
+  pivot_longer(cols = everything(),
+               names_to = "variable", 
+               values_to = "value") %>% 
+  ggplot(aes(x = value)) +
+  geom_histogram(bins = 30) +
+  facet_wrap(vars(variable), 
+             scales = "free")
+```
+
+
 3. First, we will do a couple things to get the data ready. 
 
-* I did the following for you: made outcome a factor (needs to be that way for logistic regression), made all character variables factoors, removed the year variable and some reservation status variables, and removed cases with missing values (not NULLs but true missing values).
+* I did the following for you: made outcome a factor (needs to be that way for logistic regression), made all character variables factors, removed the year variable and some reservation status variables, and removed cases with missing values (not NULLs but true missing values).
 
 * You need to split the data into a training and test set, stratifying on the outcome variable, `is_canceled`. Since we have a lot of data, split the data 50/50 between training and test. I have already `set.seed()` for you. Be sure to use `hotels_mod` in the splitting.
 
-```{r}
+```{r init_split}
 hotels_mod <- hotels %>% 
   mutate(is_canceled = as.factor(is_canceled)) %>% 
   mutate(across(where(is.character), as.factor)) %>% 
@@ -65,39 +87,157 @@ hotels_mod <- hotels %>%
   select(-n_miss_all)
 
 set.seed(494)
+
+# Randomly assigns 50% of the data to training.
+hotels_split <- initial_split(hotels_mod, 
+                             prop = .50)
+hotels_split
+#<training/testing/total>
+
+hotels_training <- training(hotels_split)
+hotels_testing <- testing(hotels_split)
 ```
 
 4. In this next step, we are going to do the pre-processing. Usually, I won't tell you exactly what to do here, but for your first exercise, I'll tell you the steps. 
 
-* Set up the recipe with `is_canceled` as the outcome and all other variables as predictors (HINT: `~.`).  
-* Use a `step_XXX()` function or functions (I think there are other ways to do this, but I found `step_mutate_at()` easiest) to create some indicator variables for the following variables: `children`, `babies`, and `previous_cancellations`. So, the new variable should be a 1 if the original is more than 0 and 0 otherwise. Make sure you do this in a way that accounts for values that may be larger than any we see in the dataset.  
+* Set up the recipe with `is_canceled` as the outcome and all other variables as predictors (HINT: `~.`).
+* Use a `step_XXX()` function or functions (I think there are other ways to do this, but I found `step_mutate_at()` easiest) to create some indicator variables for the following variables: `children`, `babies`, and `previous_cancellations`. So, the new variable should be a 1 if the original is more than 0 and 0 otherwise. Make sure you do this in a way that accounts for values that may be larger than any we see in the dataset. 
 * For the `agent` and `company` variables, make new indicator variables that are 1 if they have a value of `NULL` and 0 otherwise. I also used `step_mutate_at()` for this, but there's more ways you could do it.
-* Use `fct_lump_n()` inside `step_mutate()` to lump together countries that aren't in the top 5 most occurring. 
+* Use `fct_lump_n()` inside `step_mutate()` to lump together countries that aren't in the top 5 most occurring.
 * If you used new names for some of the new variables you created, then remove any variables that are no longer needed. 
 * Use `step_normalize()` to center and scale all the non-categorical predictor variables. (Do this BEFORE creating dummy variables. When I tried to do it after, I ran into an error - I'm still [investigating](https://community.rstudio.com/t/tidymodels-see-notes-error-but-only-with-step-xxx-functions-in-a-certain-order/115006) why.)
-* Create dummy variables for all factors/categorical predictor variables (make sure you have `-all_outcomes()` in this part!!).  
+* Create dummy variables for all factors/categorical predictor variables (make sure you have `-all_outcomes()` in this part!!). 
 * Use the `prep()` and `juice()` functions to apply the steps to the training data just to check that everything went as planned.
+
+```{r recipe}
+hotels_recipe <- recipe(is_canceled ~ ., #short-cut, . = all other vars
+                       data = hotels_training) %>%
+  step_mutate_at(children, babies, previous_cancellations,
+                 fn = ~ as.numeric(. != 0)) %>%
+  step_mutate_at(agent, company,
+                 fn = ~ as.numeric(. == "NULL")) %>%
+  step_mutate(country = fct_lump_n(country, 5)) %>% 
+  step_normalize(all_predictors(), 
+                 -all_nominal()) %>% 
+  step_dummy(all_nominal(), 
+             -all_outcomes()) 
+```
+
+```{r apply_recipe}
+hotels_recipe %>% 
+  prep(hotels_training) %>%
+  juice() 
+```
 
 5. In this step we will set up a LASSO model and workflow.
 
 * In general, why would we want to use LASSO instead of regular logistic regression? (HINT: think about what happens to the coefficients).  
 * Define the model type, set the engine, set the `penalty` argument to `tune()` as a placeholder, and set the mode.  
 * Create a workflow with the recipe and model.  
+```{r lasso_mod}
+hotels_lasso_mod <- 
+  # Define a lasso model 
+  # I believe default is mixture = 1 so probably don't need 
+  logistic_reg(mixture = 1) %>% 
+  # Set the engine to "glmnet" 
+  set_engine("glmnet") %>% 
+  # The parameters we will tune.
+  set_args(penalty = tune()) %>% 
+  # Use "regression"
+  set_mode("classification")
+```
+
+```{r lasso_workflow}
+hotels_lasso_wf <- 
+  # Set up the workflow
+  workflow() %>% 
+  # Add the recipe
+  add_recipe(hotels_recipe) %>% 
+  # Add the modeling
+  add_model(hotels_lasso_mod)
+
+hotels_lasso_wf
+```
+
+A LASSO model is also known as a shrinkage model because it reduces the coefficients in the regression. This also then reduces variance in the model, so if we changed the input variables for the model, the model's predictions would not change as drastically compared to using a logistic regression.
 
 6. In this step, we'll tune the model and fit the model using the best tuning parameter to the entire training dataset.
 
 * Create a 5-fold cross-validation sample. We'll use this later. I have set the seed for you.  
-* Use the `grid_regular()` function to create a grid of 10 potential penalty parameters (we're keeping this sort of small because the dataset is pretty large). Use that with the 5-fold cv data to tune the model.  
-* Use the `tune_grid()` function to fit the models with different tuning parameters to the different cross-validation sets.  
-* Use the `collect_metrics()` function to collect all the metrics from the previous step and create a plot with the accuracy on the y-axis and the penalty term on the x-axis. Put the x-axis on the log scale.  
+
+* Use the `grid_regular()` function to create a grid of 10 potential penalty parameters (we're keeping this sort of small because the dataset is pretty large). Use that with the 5-fold cv data to tune the model.
+
+* Use the `tune_grid()` function to fit the models with different tuning parameters to the different cross-validation sets. 
+
+* Use the `collect_metrics()` function to collect all the metrics from the previous step and create a plot with the accuracy on the y-axis and the penalty term on the x-axis. Put the x-axis on the log scale.
+
 * Use the `select_best()` function to find the best tuning parameter, fit the model using that tuning parameter to the entire training set (HINT: `finalize_workflow()` and `fit()`), and display the model results using `pull_workflow_fit()` and `tidy()`. Are there some variables with coefficients of 0?
 
-```{r}
+```{r cv}
 set.seed(494) # for reproducibility
+hotels_cv <- vfold_cv(hotels_training, v = 5)
+```
 
+```{r tune_grid}
+penalty_grid <- grid_regular(penalty(),
+                             levels = 10)
+penalty_grid 
+```
+
+```{r tune}
+hotels_lasso_tune <- 
+  hotels_lasso_wf %>% 
+  tune_grid(
+    resamples = hotels_cv,
+    grid = penalty_grid
+    )
+
+hotels_lasso_tune
 
 ```
 
+```{r tune_results}
+hotels_lasso_tune %>% 
+  collect_metrics() %>% 
+  filter(.metric == "rmse") 
+```
+
+
+```{r tune_viz}
+# Visualize rmse vs. penalty
+hotels_lasso_tune %>% 
+  collect_metrics() %>% 
+  filter(.metric == "rmse") %>% 
+  ggplot(aes(x = penalty, y = mean)) +
+  geom_point() +
+  geom_line() +
+  scale_x_log10(
+   breaks = scales::trans_breaks("log10", function(x) 10^x),
+   labels = scales::trans_format("log10",scales::math_format(10^.x))) +
+  labs(x = "penalty", y = "rmse")
+```
+
+```{r best-tune}
+# Best tuning parameter by smallest rmse
+best_param <- hotels_lasso_tune %>% 
+  select_best(metric = "rmse")
+best_param
+```
+
+```{r tune_wf}
+house_lasso_final_wf <- house_lasso_wf %>% 
+  finalize_workflow(best_param)
+house_lasso_final_wf
+```
+
+```{r lasso_train}
+house_lasso_final_mod <- house_lasso_final_wf %>% 
+  fit(data = house_training)
+
+house_lasso_final_mod %>% 
+  pull_workflow_fit() %>% 
+  tidy() 
+```
 
 7. Now that we have a model, let's evaluate it a bit more. All we have looked at so far is the cross-validated accuracy from the previous step. 
 
