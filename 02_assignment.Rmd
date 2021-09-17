@@ -9,7 +9,7 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-#knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE)
+knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE)
 ```
 
 ```{r libraries}
@@ -162,10 +162,15 @@ hotels_lasso_wf
 A LASSO model is also known as a shrinkage model because it reduces the coefficients in the regression. This also then reduces variance in the model, so if we changed the input variables for the model, the model's predictions would not change as drastically compared to using a logistic regression.
 
 6. In this step, we'll tune the model and fit the model using the best tuning parameter to the entire training dataset.
-* Create a 5-fold cross-validation sample. We'll use this later. I have set the seed for you. 
+
+* Create a 5-fold cross-validation sample. We'll use this later. I have set the seed for you.  
+
 * Use the `grid_regular()` function to create a grid of 10 potential penalty parameters (we're keeping this sort of small because the dataset is pretty large). Use that with the 5-fold cv data to tune the model.
+
 * Use the `tune_grid()` function to fit the models with different tuning parameters to the different cross-validation sets. 
+
 * Use the `collect_metrics()` function to collect all the metrics from the previous step and create a plot with the accuracy on the y-axis and the penalty term on the x-axis. Put the x-axis on the log scale.
+
 * Use the `select_best()` function to find the best tuning parameter, fit the model using that tuning parameter to the entire training set (HINT: `finalize_workflow()` and `fit()`), and display the model results using `pull_workflow_fit()` and `tidy()`. Are there some variables with coefficients of 0?
 
 ```{r cv}
@@ -233,20 +238,28 @@ hotels_lasso_final_mod %>%
   pull_workflow_fit() %>% 
   tidy() 
 ```
-There are variables with 0 as the coefficient (arrival_date_month_September, distribution_channel_Undefined)
+There are two variables with 0 as the coefficient (arrival_date_month_September and distribution_channel_Undefined).
 
 7. Now that we have a model, let's evaluate it a bit more. All we have looked at so far is the cross-validated accuracy from the previous step. 
 
 * Create a variable importance graph. Which variables show up as the most important? Are you surprised?  
 * Use the `last_fit()` function to fit the final model and then apply it to the testing data. Report the metrics from the testing data using the `collet_metrics()` function. How do they compare to the cross-validated metrics?
 
-The new accuracy estimate using the testing data is almost exactly the same as the cross-validated metrics. It is less accurate by about .003 (0.8161259	vs. 0.813814) 
+The accuracy from the model using the testing data is almost exactly the same as the training accuracy. It was different by about 0.03 (0.813814 vs. 0.8161259)
 
 * Use the `collect_predictions()` function to find the predicted probabilities and classes for the test data. Save this to a new dataset called `preds`. Then, use the `conf_mat()` function from `dials` (part of `tidymodels`) to create a confusion matrix showing the predicted classes vs. the true classes. Compute the true positive rate (sensitivity), true negative rate (specificity), and accuracy. See this [Wikipedia](https://en.wikipedia.org/wiki/Confusion_matrix) reference if you (like me) tend to forget these definitions. Also keep in mind that a "positive" in this case is a cancellation (those are the 1's).    
 * Use the `preds` dataset you just created to create a density plot of the predicted probabilities of canceling (the variable is called `.pred_1`), filling by `is_canceled`. Use an `alpha = .5` and `color = NA` in the `geom_density()`. Answer these questions: 
-a. What would this graph look like for a model with an accuracy that was close to 1?  
-b. Our predictions are classified as canceled if their predicted probability of canceling is greater than .5. If we wanted to have a high true positive rate, should we make the cutoff for predicted as canceled higher or lower than .5?  
+a. What would this graph look like for a model with an accuracy that was close to 1? 
+
+This graph would look like two seperate curves that do not overlap at all.
+
+b. Our predictions are classified as canceled if their predicted probability of canceling is greater than .5. If we wanted to have a high true positive rate, should we make the cutoff for predicted as canceled higher or lower than .5? 
+
+If we wanted to make a higher true positive rate we should make the cutoff higher. Then, the predicted probability of a cancelation must be greater in order to classify it as canceled. So we won't get as many positive predictions when in fact the actual result was not a cancelation.  
+
 c. What happens to the true negative rate if we try to get a higher true positive rate? 
+
+The true negative rate would decrease because there would be larger amounts of false negative predictions.
 
 ```{r lasso_test}
 # Fit model with best tuning parameter(s) to training data and apply to test data
@@ -256,13 +269,33 @@ hotels_lasso_test <- hotels_lasso_final_wf %>%
 # Metrics for model applied to test data
 hotels_lasso_test %>% 
   collect_metrics()
+
+```
+```{r confusion_matrix}
+preds <- 
+  collect_predictions(hotels_lasso_test)
+conf_mat(preds,.pred_class, is_canceled)
+  
+  
+```
+The True Positive Rate is 14,358/17738= 80.9%. The True Negative Rate is 34221/41955= 81.5%
+
+```{r density_plot, alpha = .5}
+preds %>%
+ggplot() +
+  geom_density(aes(x = .pred_1, fill=is_canceled))+
+  labs(title = "Predicted Probabilities",
+       x= "Predicted Probabilities of Canceling")
 ```
 
 
 8. Let's say that this model is going to be applied to bookings 14 days in advance of their arrival at each hotel, and someone who works for the hotel will make a phone call to the person who made the booking. During this phone call, they will try to assure that the person will be keeping their reservation or that they will be canceling in which case they can do that now and still have time to fill the room. How should the hotel go about deciding who to call? How could they measure whether it was worth the effort to do the calling? Can you think of another way they might use the model? 
 
+The hotel should call the customers that are predicted to cancel their booking. If they did that, they could possibly re-book about half of the people's reservations who will eventually end up cancelling. They should measure the success by how many of the bookings they can cancel early and rebook because that is profit gained from the model. They could also use this model to create a refundable deposit policy for how to go about allowing peole to cancel.  
+
 9. How might you go about questioning and evaluating the model in terms of fairness? Are there any questions you would like to ask of the people who collected the data? 
 
+Thinking about fairness in this model I could see some customers getting upset about the hotel calling them and asking them if they are cancelling based of factors that they may or may not have been able to control. Customer's may take the question as calling them irresponsible for not possibly fufilling there initial commitment to a booking. A question I would ask for the data collecting the data would be "how are all groups (poor vs. wealthy families) represented within the dataset?"
 
 
 ## Bias and Fairness
